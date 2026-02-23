@@ -1,0 +1,16 @@
+# Secrets and credentials
+connectionstring.txt
+*.pem
+*.key
+*.env
+.env
+.env.local
+local.settings.json
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+*.log
