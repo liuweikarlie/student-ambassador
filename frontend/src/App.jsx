@@ -576,7 +576,7 @@ function AudiencePage({ eventId }) {
 
   // Fetch just the one event by querying submissions API with eventId
   useEffect(() => {
-    fetch(`/api/events/${eventId}`)
+    fetch(`/api/event-public?id=${eventId}`)
       .then(r => r.ok ? r.json() : Promise.reject())
       .then(ev => setEvent(ev))
       .catch(() => setNotFound(true));

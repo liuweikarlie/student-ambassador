@@ -34,7 +34,7 @@ async function handle(res) {
 // ── Auth ───────────────────────────────────────────────────────
 export async function login(email, password, role) {
   const body = await handle(
-    await fetch(`${BASE}/auth/login`, {
+    await fetch(`${BASE}/auth`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password, role }),
