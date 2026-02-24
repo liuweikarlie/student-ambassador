@@ -1,17 +1,17 @@
 // api/view-screenshot/index.js
 // Generates a fresh SAS URL for a private blob on demand
-// Called when admin clicks "View" on a submission
-// Requires authentication — only ambassadors/admins can view screenshots
+// Uses DefaultAzureCredential — no connection string or account key needed
+// Local: az login | Production: Managed Identity
 
 const {
   BlobServiceClient,
-  StorageSharedKeyCredential,
   generateBlobSASQueryParameters,
   BlobSASPermissions,
 } = require("@azure/storage-blob");
+const { DefaultAzureCredential } = require("@azure/identity");
 const jwt = require("jsonwebtoken");
 
-const SAS_EXPIRY_MINUTES = 30; // URL valid for 30 minutes per view request
+const SAS_EXPIRY_MINUTES = 30;
 
 function verifyToken(req) {
   const auth = req.headers["authorization"] || "";
@@ -40,32 +40,35 @@ module.exports = async function (context, req) {
     return;
   }
 
-  const connStr = process.env.BLOB_CONNECTION_STRING || "";
-  const accountNameMatch = connStr.match(/AccountName=([^;]+)/);
-  const accountKeyMatch = connStr.match(/AccountKey=([^;]+)/);
-
-  if (!accountNameMatch || !accountKeyMatch) {
-    context.res = { status: 500, body: { error: "Blob storage not configured" } };
-    return;
-  }
-
-  const accountName = accountNameMatch[1];
-  const accountKey = accountKeyMatch[1];
-
   try {
-    const sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
-    const sasOptions = {
-      containerName: "screenshots",
-      blobName: blobPath,
-      permissions: BlobSASPermissions.parse("r"),
-      expiresOn: new Date(Date.now() + SAS_EXPIRY_MINUTES * 60 * 1000),
-    };
-    const sasToken = generateBlobSASQueryParameters(sasOptions, sharedKeyCredential).toString();
-    const sasUrl = `https://${accountName}.blob.core.windows.net/screenshots/${blobPath}?${sasToken}`;
+    const credential = new DefaultAzureCredential();
+    const accountUrl = process.env.BLOB_ACCOUNT_URL;
+    const accountName = accountUrl.replace("https://", "").split(".")[0];
 
+    const blobServiceClient = new BlobServiceClient(accountUrl, credential);
+
+    const startsOn = new Date();
+    const expiresOn = new Date(Date.now() + SAS_EXPIRY_MINUTES * 60 * 1000);
+
+    // User delegation key — identity-based, more secure than account key SAS
+    const userDelegationKey = await blobServiceClient.getUserDelegationKey(startsOn, expiresOn);
+
+    const sasToken = generateBlobSASQueryParameters(
+      {
+        containerName: "screenshots",
+        blobName: blobPath,
+        permissions: BlobSASPermissions.parse("r"),
+        startsOn,
+        expiresOn,
+      },
+      userDelegationKey,
+      accountName
+    ).toString();
+
+    const sasUrl = `${accountUrl}/screenshots/${blobPath}?${sasToken}`;
     context.res = { status: 200, body: { sasUrl } };
   } catch (err) {
     context.log.error(err);
-    context.res = { status: 500, body: { error: "Failed to generate view URL" } };
+    context.res = { status: 500, body: { error: "Failed to generate view URL: " + err.message } };
   }
 };

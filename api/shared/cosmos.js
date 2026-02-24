@@ -1,7 +1,13 @@
-// api/shared/cosmos.js
 const { CosmosClient } = require("@azure/cosmos");
+const { DefaultAzureCredential } = require("@azure/identity");
 
-const client = new CosmosClient(process.env.COSMOS_CONNECTION_STRING);
+const credential = new DefaultAzureCredential();
+
+const client = new CosmosClient({
+  endpoint: process.env.COSMOS_ENDPOINT,
+  aadCredentials: credential,
+});
+
 const db = client.database("AmbassadorDB");
 
 module.exports = {

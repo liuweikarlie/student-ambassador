@@ -1,26 +1,13 @@
 // api/upload/index.js
-// Handles screenshot upload → Azure Blob Storage (PRIVATE container)
-// Returns a short-lived SAS URL for immediate viewing
-// Blob itself is never publicly accessible — only via signed URLs
+// Uses DefaultAzureCredential — no connection string or account key needed
+// Local:      authenticates via "az login"
+// Production: authenticates via Managed Identity automatically
 
-const { BlobServiceClient, StorageSharedKeyCredential, generateBlobSASQueryParameters, BlobSASPermissions } = require("@azure/storage-blob");
+const { BlobServiceClient } = require("@azure/storage-blob");
+const { DefaultAzureCredential } = require("@azure/identity");
 
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
-const SAS_EXPIRY_HOURS = 1; // SAS URL valid for 1 hour after upload
-
-function generateSasUrl(accountName, accountKey, containerName, blobName) {
-  const sharedKeyCredential = new StorageSharedKeyCredential(accountName, accountKey);
-
-  const sasOptions = {
-    containerName,
-    blobName,
-    permissions: BlobSASPermissions.parse("r"), // read-only
-    expiresOn: new Date(Date.now() + SAS_EXPIRY_HOURS * 60 * 60 * 1000),
-  };
-
-  const sasToken = generateBlobSASQueryParameters(sasOptions, sharedKeyCredential).toString();
-  return `https://${accountName}.blob.core.windows.net/${containerName}/${blobName}?${sasToken}`;
-}
+const SAS_EXPIRY_HOURS = 1;
 
 module.exports = async function (context, req) {
   if (req.method !== "POST") {
@@ -40,25 +27,16 @@ module.exports = async function (context, req) {
     return;
   }
 
-  // Parse account name and key from connection string
-  // Connection string format: DefaultEndpointsProtocol=https;AccountName=xxx;AccountKey=yyy;...
-  const connStr = process.env.BLOB_CONNECTION_STRING || "";
-  const accountNameMatch = connStr.match(/AccountName=([^;]+)/);
-  const accountKeyMatch = connStr.match(/AccountKey=([^;]+)/);
-
-  if (!accountNameMatch || !accountKeyMatch) {
-    context.res = { status: 500, body: { error: "Blob storage not configured correctly" } };
-    return;
-  }
-
-  const accountName = accountNameMatch[1];
-  const accountKey = accountKeyMatch[1];
-
   try {
-    const blobServiceClient = BlobServiceClient.fromConnectionString(connStr);
+    // DefaultAzureCredential automatically picks up:
+    // - "az login" when running locally
+    // - Managed Identity when running in Azure
+    const credential = new DefaultAzureCredential();
+    const accountUrl = process.env.BLOB_ACCOUNT_URL;
+
+    const blobServiceClient = new BlobServiceClient(accountUrl, credential);
     const containerClient = blobServiceClient.getContainerClient("screenshots");
 
-    // Unique filename to prevent collisions
     const uniqueName = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${fileName}`;
     const blockBlobClient = containerClient.getBlockBlobClient(uniqueName);
 
@@ -67,24 +45,39 @@ module.exports = async function (context, req) {
       blobHTTPHeaders: { blobContentType: mimeType || "image/png" }
     });
 
-    // Generate a short-lived SAS URL for immediate viewing
-    const sasUrl = generateSasUrl(accountName, accountKey, "screenshots", uniqueName);
+    // Generate SAS token using user delegation key (works with Managed Identity)
+    // This is more secure than account key SAS — tokens are tied to an identity
+    const startsOn = new Date();
+    const expiresOn = new Date(Date.now() + SAS_EXPIRY_HOURS * 60 * 60 * 1000);
 
-    // IMPORTANT: we store the BLOB PATH (not the SAS URL) in Cosmos DB
-    // The SAS URL is only returned once for immediate confirmation display
-    // Admin viewing is handled by /api/view-screenshot which generates fresh SAS URLs on demand
+    const userDelegationKey = await blobServiceClient.getUserDelegationKey(startsOn, expiresOn);
+
+    const { generateBlobSASQueryParameters, BlobSASPermissions, StorageSharedKeyCredential } = require("@azure/storage-blob");
+
+    // Extract account name from URL
+    const accountName = accountUrl.replace("https://", "").split(".")[0];
+
+    const sasToken = generateBlobSASQueryParameters(
+      {
+        containerName: "screenshots",
+        blobName: uniqueName,
+        permissions: BlobSASPermissions.parse("r"),
+        startsOn,
+        expiresOn,
+      },
+      userDelegationKey,
+      accountName
+    ).toString();
+
+    const sasUrl = `${blockBlobClient.url}?${sasToken}`;
     const blobPath = uniqueName;
 
     context.res = {
       status: 200,
-      body: {
-        sasUrl,        // short-lived, for immediate display after upload
-        blobPath,      // permanent identifier stored in Cosmos DB
-        fileName: uniqueName
-      }
+      body: { sasUrl, blobPath, fileName: uniqueName }
     };
   } catch (err) {
     context.log.error(err);
-    context.res = { status: 500, body: { error: "Upload failed" } };
+    context.res = { status: 500, body: { error: "Upload failed: " + err.message } };
   }
 };
