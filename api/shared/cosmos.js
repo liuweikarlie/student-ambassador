@@ -1,7 +1,13 @@
 const { CosmosClient } = require("@azure/cosmos");
-const { DefaultAzureCredential } = require("@azure/identity");
+const { ManagedIdentityCredential } = require("@azure/identity");
 
-const credential = new DefaultAzureCredential();
+if (!process.env.COSMOS_ENDPOINT) {
+  throw new Error("Missing Cosmos config. Set COSMOS_ENDPOINT.");
+}
+
+const credential = process.env.AZURE_CLIENT_ID
+  ? new ManagedIdentityCredential(process.env.AZURE_CLIENT_ID)
+  : new ManagedIdentityCredential();
 
 const client = new CosmosClient({
   endpoint: process.env.COSMOS_ENDPOINT,
