@@ -10,7 +10,7 @@
   "description": "",
   "dependencies": {
     "@azure/cosmos": "^4.2.0",
-    "@azure/identity": "^4.13.0",
+    "@azure/identity": "^4.10.1",
     "@azure/storage-blob": "^12.26.0",
     "jsonwebtoken": "^9.0.2"
   }
