@@ -1,10 +1,11 @@
 // frontend/src/api.js
 // Replaces all window.storage calls with fetch() to Azure Functions
 // ─────────────────────────────────────────────────────────────────
-// Azure Static Web Apps automatically routes /api/* to your Functions,
-// so no need to hardcode a base URL — just use relative paths.
+// Default to "/api" for local SWA-style routing.
+// In production with standalone Function App, set:
+// VITE_API_BASE_URL=https://copilot-ambassador-api.azurewebsites.net/api
 
-const BASE = "/api";
+const BASE = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/$/, "");
 
 // ── Token helpers ──────────────────────────────────────────────
 export function getToken() {
