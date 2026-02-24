@@ -7,10 +7,6 @@
     {
       "route": "/audience/*",
       "rewrite": "/index.html"
-    },
-    {
-      "route": "/*",
-      "rewrite": "/index.html"
     }
   ],
   "navigationFallback": {
