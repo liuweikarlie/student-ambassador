@@ -4,12 +4,17 @@ on:
   push:
     branches:
       - main
+    paths:
+      - "frontend/**"
+      - "staticwebapp.config.json"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
 
 jobs:
   build_and_deploy:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Build And Deploy
         uses: Azure/static-web-apps-deploy@v1
@@ -18,5 +23,4 @@ jobs:
           repo_token: ${{ secrets.GITHUB_TOKEN }}
           action: "upload"
           app_location: "frontend"
-          api_location: "api"
           output_location: "dist"
